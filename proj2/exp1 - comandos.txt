@@ -33,7 +33,12 @@ ip:		172.16.40.1
 mac:	00:e0:7d:b4:b8:94  -- mudar aqui
 
 >>xterm
-ifconfig eth0 172.16.40.1/24 
+ifconfig eth0 172.16.40.1/24
+
+route add -net 172.16.40.0/24 gw 172.16.40.254
+route add default gw 172.16.40.0
+
+
 
 
 ================================== tux 4
@@ -42,3 +47,5 @@ mac:	00:22:64:a6:a4:f8 --- mudar aqui
 
 >>xterm
 ifconfig eth0 172.16.40.254/24
+
+
