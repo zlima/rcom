@@ -10,18 +10,20 @@
 #include <signal.h>
 #include <netdb.h>
 #include <strings.h>
-
+#include <string.h>
 
 #define SERVER_PORT 6000
 #define SERVER_ADDR "192.168.28.96"
 
 #define TIMEOUT 5
 
-void parseUrl(char* user, char* pass, char* host, char* path, char* filename){
+void parseUrl(char* buf,char* user, char* pass, char* host, char* path, char* filename){
+printf("%s\n",buf);
 
 	if(sscanf(buf, "ftp://%[^:]:%[^@]@%[^/]/%s", user, pass, host, path) < 4)
 	{
-		if(sscanf(buf, "ftp://%[^/]/%s", host, path) < 2) //no user
+		
+		if(sscanf(buf,"ftp://%[^/]/%s", host, path) < 2) //no user
 		{
 			printf("Invalid URL\n");
 			exit(1);
@@ -47,8 +49,15 @@ void parseUrl(char* user, char* pass, char* host, char* path, char* filename){
 	}	
 }
 
+int readBuf(char*buf, int sockfd){
+	alarm(TIMEOUT);
+	int result= recv(sockfd, buf, 4096,0);
+	alarm(0);
+	return result;
+}
 
-void readMessage(char* buf, int sockfd, int ftpcode){
+
+int readMessage(char* buf, int sockfd, int ftpcode){
 
 	int receivedBytes, firstChunk=1, messageCode;
 	receivedBytes = readBuf(buf, sockfd);
@@ -58,7 +67,7 @@ void readMessage(char* buf, int sockfd, int ftpcode){
 		if(firstChunk){
 			sscanf(buf,"%d%*s",&messageCode);
 			if(messageCode != ftpcode){
-				printf("Unexpected response.\n", );
+				printf("Unexpected response.\n");
 				exit(1);
 			}
 			firstChunk=0;
@@ -68,12 +77,21 @@ void readMessage(char* buf, int sockfd, int ftpcode){
 		return messageCode;
 }
 
-void writeBuf(char* buf, int sockfd){
+int writeBuf(char* buf, int sockfd){
 
 	alarm(TIMEOUT);
-	int reult = send(sockfd, buf, strlen(buf),0);
+	int result = send(sockfd, buf, strlen(buf),0);
 	alarm(0);
 	return result;
+}
+
+void getPasv(char* buf, char* port, char* ip){
+	
+	int ip1, ip2, ip3, ip4, port1, port2;
+	sscanf(buf,"%*d %*s %*s %*s (%d,%d,%d,%d,%d,%d)", &ip1, &ip2, &ip3, &ip4, &port1, &port2);
+	int portVal = port1*256+port2;
+	sprintf(ip, "%d.%d.%d.%d", ip1, ip2, ip3, ip4); //could be ipv6
+	sprintf(port, "%d", portVal);
 }
 
 
@@ -82,6 +100,28 @@ void timeout()
 	printf("\nConnection timed out!\n");
 	exit(1);
 }
+
+void getFile(char* buf, FILE* newFile, int fileSize, int sockfd){
+	int numchunks =0;
+	int receivedBytes, sumBytes =0;
+	double elpsed;
+	
+	while(1){
+		receivedBytes = readBuf(buf,sockfd);
+		if(receivedBytes > 0){
+			sumBytes += receivedBytes;
+			fwrite(buf, sizeof(char), receivedBytes, newFile);
+			printf("Chunk No:(%i) received!\n",numchunks);
+		}
+		else break;
+	}
+	
+	if(sumBytes != fileSize){
+		printf("Error receiving file!\n");
+	}
+	else printf("File received!\n");
+}
+
 
 int main(int argc, char** argv){
 	int	sockfd, sockPasfd;
@@ -96,7 +136,7 @@ int main(int argc, char** argv){
 		exit(0);
 	}
 
-	parseUrl(argv[1], user, pass, host, path, filename);
+	parseUrl(argv[1], user, password, host, path, filename);
 
 	struct addrinfo hints;
 	struct addrinfo *servinfo;
@@ -140,5 +180,39 @@ int main(int argc, char** argv){
 	char port[6], ip[15];
 	getPasv(readBuf, port, ip);
 	
+	memset(&hints, 0, sizeof(hints));
+	
+	hints.ai_family = AF_UNSPEC;
+	
+	hints.ai_socktype = SOCK_STREAM; //TCP stream socket
+	
+	getaddrinfo(ip,port,&hints,&servinfo);
+	
+	sockPasfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+	
+	//connect no ip retornado para o passive mode
+	if(connect(sockPasfd, servinfo->ai_addr, servinfo->ai_addrlen) < 0){
+		perror("error connecting to pasFD");
+		exit(1);
+	}
+	
+	sprintf(buf, "retr %s\n",path);
+	writeBuf(buf,sockfd);
+	
+	readMessage(buf, sockfd, 150);
+	
+	FILE * newFile = fopen(filename,"wb");
+	
+	int fileSize;
+	sscanf(buf,"%*[^(](%d%*s", &fileSize);
+	
+	getFile(readBuf,newFile, fileSize, sockPasfd);
+	
+	fclose(newFile);
+	
+	close(sockfd);
+	close(sockPasfd);
+	freeaddrinfo(servinfo);
+	exit(0);
 
 }
