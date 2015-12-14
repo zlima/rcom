@@ -12,13 +12,9 @@
 #include <strings.h>
 #include <string.h>
 
-#define SERVER_PORT 6000
-#define SERVER_ADDR "192.168.28.96"
-
 #define TIMEOUT 5
 
 void parseUrl(char* buf,char* user, char* pass, char* host, char* path, char* filename){
-printf("%s\n",buf);
 
 	if(sscanf(buf, "ftp://%[^:]:%[^@]@%[^/]/%s", user, pass, host, path) < 4)
 	{
@@ -58,12 +54,10 @@ int readBuf(char*buf, int sockfd){
 
 
 int readMessage(char* buf, int sockfd, int ftpcode){
-
 	int receivedBytes, firstChunk=1, messageCode;
 	receivedBytes = readBuf(buf, sockfd);
 	while(buf[receivedBytes-3]=='-' && receivedBytes > 0){
 		buf[receivedBytes] = 0;
-		printf("%s", buf);
 		if(firstChunk){
 			sscanf(buf,"%d%*s",&messageCode);
 			if(messageCode != ftpcode){
@@ -102,9 +96,8 @@ void timeout()
 }
 
 void getFile(char* buf, FILE* newFile, int fileSize, int sockfd){
-	int numchunks =0;
+	int numchunks =1;
 	int receivedBytes, sumBytes =0;
-	double elpsed;
 	
 	while(1){
 		receivedBytes = readBuf(buf,sockfd);
@@ -112,6 +105,7 @@ void getFile(char* buf, FILE* newFile, int fileSize, int sockfd){
 			sumBytes += receivedBytes;
 			fwrite(buf, sizeof(char), receivedBytes, newFile);
 			printf("Chunk No:(%i) received!\n",numchunks);
+			numchunks++;
 		}
 		else break;
 	}
@@ -143,16 +137,15 @@ int main(int argc, char** argv){
 
 	memset(&hints, 0 , sizeof hints);
 
-	hints.ai_family = AF_UNSPEC;
+	hints.ai_family = AF_UNSPEC; //either ipv4 or ipv6
 
 	hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
 
 	// get ready to connect
-	if ((status = getaddrinfo(host, "21", &hints, &servinfo)) != 0) {
-		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+	if ((status = getaddrinfo(host, "21", &hints, &servinfo)) != 0) {//combina gethostbyname(3) e getservbyname(3), trata das dependencias de ipv4 e ipv6
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));//porta de serviço 23
 		exit(1);
 	}
-
 	sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
 
 	/*connect to the server*/
@@ -176,16 +169,17 @@ int main(int argc, char** argv){
 	writeBuf("PASV \r\n", sockfd); //PASV	Passive mode.
 
 	readMessage(readBuf, sockfd, 227); //227 Entering Passive Mode <192,168, 50, 138, 249, 250>.
-
+	
 	char port[6], ip[15];
 	getPasv(readBuf, port, ip);
+
+	memset(&hints, 0, sizeof(hints));//clear hints struct
 	
-	memset(&hints, 0, sizeof(hints));
-	
-	hints.ai_family = AF_UNSPEC;
+	hints.ai_family = AF_UNSPEC;//ipv4 ou ipv6
 	
 	hints.ai_socktype = SOCK_STREAM; //TCP stream socket
 	
+	//receber informaçao do socket do modo passivo
 	getaddrinfo(ip,port,&hints,&servinfo);
 	
 	sockPasfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
@@ -201,13 +195,12 @@ int main(int argc, char** argv){
 	
 	readMessage(buf, sockfd, 150);
 	
-	FILE * newFile = fopen(filename,"wb");
+	FILE * newFile = fopen(filename,"wb");//cria ficheiro 
 	
 	int fileSize;
 	sscanf(buf,"%*[^(](%d%*s", &fileSize);
 	
 	getFile(readBuf,newFile, fileSize, sockPasfd);
-	
 	fclose(newFile);
 	
 	close(sockfd);
