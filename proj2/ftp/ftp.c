@@ -168,7 +168,7 @@ int main(int argc, char** argv){
 	
 	writeBuf("PASV \r\n", sockfd); //PASV	Passive mode.
 
-	readMessage(readBuf, sockfd, 227); //227 Entering Passive Mode <192,168, 50, 138, 249, 250>.
+	readMessage(readBuf, sockfd, 227); //227 Entering Passive Mode <193,136, 37, 8, 211, 221>.
 	
 	char port[6], ip[15];
 	getPasv(readBuf, port, ip);
